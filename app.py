@@ -37,7 +37,7 @@ st.markdown("---")
 # --- STEP 2: 走行距離と利用時間の入力 ---
 st.subheader("2. 距離と所要時間・待機の入力")
 
-col_dist, col_drive_time, col_wait = st.columns(3)
+col_dist, col_drive_time = st.columns(2)
 with col_dist:
     distance_km = st.number_input(
         "走行距離 (km)",
@@ -58,6 +58,7 @@ with col_drive_time:
         help="Googleマップで表示される通常の車走行時間"
     )
 
+col_wait, col_total_charter = st.columns(2)
 with col_wait:
     stop_minutes = st.number_input(
         "乗降介助・待機時間 (分)",
@@ -68,30 +69,6 @@ with col_wait:
         help="現地での乗り降り、介助、現場待機などの時間（90秒毎に100円加算）"
     )
 
-# 信号待ち設定 ＆ 渋滞考慮エリア
-st.markdown("##### 🚦 信号待ち・渋滞シミュレーション設定")
-col_signal, col_traffic, col_total_charter = st.columns(3)
-
-with col_signal:
-    signal_sec_per_km = st.number_input(
-        "1kmあたりの信号待ち (秒)",
-        min_value=0,
-        max_value=120,
-        value=45,
-        step=5,
-        help="市街地における1kmあたりの平均信号待ち時間（標準30秒〜60秒）"
-    )
-
-with col_traffic:
-    traffic_drive_minutes = st.number_input(
-        "渋滞時の想定走行時間 (分)",
-        min_value=int(normal_drive_minutes),
-        max_value=600,
-        value=max(int(normal_drive_minutes * 1.5), normal_drive_minutes + 5),
-        step=5,
-        help="渋滞が発生した場合の予測走行時間"
-    )
-
 with col_total_charter:
     total_duration_minutes = st.number_input(
         "時間制比較用の総利用時間 (分)",
@@ -100,6 +77,41 @@ with col_total_charter:
         value=max(30, int(normal_drive_minutes + stop_minutes)),
         step=15,
         help="時間制運賃（30分毎3,650円）計算のベース時間"
+    )
+
+# 信号待ち設定 ＆ 渋滞考慮エリア
+st.markdown("##### 🚦 信号待ち・渋滞シミュレーション設定")
+col_signal_density, col_signal_wait, col_traffic = st.columns(3)
+
+with col_signal_density:
+    signals_per_km = st.number_input(
+        "1kmあたりの信号機数 (機)",
+        min_value=0.0,
+        max_value=10.0,
+        value=2.0,
+        step=0.5,
+        format="%.1f",
+        help="市街地の平均信号機密度（標準2機/km）"
+    )
+
+with col_signal_wait:
+    wait_sec_per_signal = st.number_input(
+        "1機あたりの平均赤信号待ち (秒)",
+        min_value=0,
+        max_value=120,
+        value=25,
+        step=5,
+        help="赤信号に引っかかった場合の平均停止時間（標準25秒）"
+    )
+
+with col_traffic:
+    traffic_drive_minutes = st.number_input(
+        "渋滞時の想定走行時間 (分)",
+        min_value=int(normal_drive_minutes),
+        max_value=600,
+        value=max(int(normal_drive_minutes * 1.5), normal_drive_minutes + 5),
+        step=1,
+        help="渋滞が発生した場合の予測走行時間"
     )
 
 st.markdown("---")
@@ -227,19 +239,20 @@ common_options = yoyaku_fare + care_fare + indoor_care_fare + equipment_fare + s
 geisha_fare = 850 if use_geisha else 0
 
 # --------------------------------------------------
-# 時間加算対象分数の算出（修正ロジック）
+# 時間加算対象分数の算出（信号8機＋渋滞8割）
 # --------------------------------------------------
-# 1. 通常走行時の信号待ち時間（1kmあたり指定秒数）
-normal_signal_minutes = (distance_km * signal_sec_per_km) / 60.0
+# 1. 通常走行時の信号待ち時間（分）： 距離 × 信号機数/km × 平均秒数 / 60
+total_signals = distance_km * signals_per_km
+normal_signal_minutes = (total_signals * wait_sec_per_signal) / 60.0
 
 # 2. 通常時の時間加算対象 ＝ 信号待ち時間 ＋ 乗降介助・待機時間
 normal_add_target_minutes = normal_signal_minutes + stop_minutes
 
-# 3. 渋滞によるロス時間（分）の50%を時速10km以下とみなす
+# 3. 渋滞によるロス時間（分）の 80% を 10km/h 以下とみなす
 traffic_delay_minutes = max(0.0, traffic_drive_minutes - normal_drive_minutes)
-traffic_low_speed_minutes = traffic_delay_minutes * 0.5
+traffic_low_speed_minutes = traffic_delay_minutes * 0.8
 
-# 4. 渋滞時の時間加算対象 ＝ 通常時の加算対象 ＋ 渋滞ロスの50%
+# 4. 渋滞時の時間加算対象 ＝ 通常時の加算対象 ＋ 渋滞ロスの80%
 traffic_add_target_minutes = normal_add_target_minutes + traffic_low_speed_minutes
 
 # --------------------------------------------------
@@ -284,23 +297,18 @@ charter_total_final = charter_after_disc + common_options
 # --- STEP 6: 結果表示と比較 ---
 st.subheader("5. 見積もり比較結果")
 
-col_res_dist, col_res_time = st.columns(2)
+# 縦並び配置で全画面サイズに対応
+st.markdown("#### 📏 距離制運賃")
+st.metric("概算合計", f"{dist_total_normal:,} 円 〜 {dist_total_traffic:,} 円 (渋滞時)")
+if dist_total_normal <= charter_total_final:
+    st.success("💡 通常時は距離制がお得です")
 
-with col_res_dist:
-    st.markdown("#### 📏 距離制運賃 (通常時)")
-    st.metric("概算合計", f"{dist_total_normal:,} 円")
-    if dist_total_normal <= charter_total_final:
-        st.success("💡 通常時はこちらがお得")
+st.markdown("---")
 
-with col_res_time:
-    st.markdown("#### ⏱️ 時間制運賃 (貸切)")
-    st.metric("概算合計", f"{charter_total_final:,} 円")
-    if charter_total_final < dist_total_normal:
-        st.success("💡 時間制がお得")
-
-# 渋滞考慮の比較カード
-traffic_diff = dist_total_traffic - dist_total_normal
-st.warning(f"🚦 **渋滞考慮時の目安（距離制）**: 約 **{dist_total_traffic:,} 円** （通常時より +{traffic_diff:,} 円 加算想定）")
+st.markdown("#### ⏱️ 時間制運賃 ")
+st.metric("概算合計", f"{charter_total_final:,} 円")
+if charter_total_final < dist_total_normal:
+    st.success("💡 時間制がお得です")
 
 # 内訳詳細
 with st.expander("詳細内訳を確認する"):
@@ -320,7 +328,7 @@ with st.expander("詳細内訳を確認する"):
     with col_t_detail:
         st.write("**距離制（渋滞時）の内訳:**")
         st.write(f"- 距離運賃 ({distance_km:.1f}km): {dist_fare_raw:,} 円")
-        st.write(f"- 時間加算運賃 ({traffic_add_target_minutes:.1f}分相当 [信号待ち{normal_signal_minutes:.1f}分+待機{stop_minutes}分+渋滞遅延50%{traffic_low_speed_minutes:.1f}分]): {traffic_time_add_fare:,} 円")
+        st.write(f"- 時間加算運賃 ({traffic_add_target_minutes:.1f}分相当 [信号待ち{normal_signal_minutes:.1f}分+待機{stop_minutes}分+渋滞遅延80%{traffic_low_speed_minutes:.1f}分]): {traffic_time_add_fare:,} 円")
         if disability_discount:
             st.write(f"- 障害者割引 (-10%): -{(traffic_meter_total - traffic_meter_after_disc):,} 円")
         st.write(f"- 迎車料: {geisha_fare:,} 円")
