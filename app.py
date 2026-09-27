@@ -9,6 +9,17 @@ st.set_page_config(
     layout="centered"
 )
 
+# スマホ画面で見切れを防ぐためのカスタムCSS設定
+st.markdown("""
+<style>
+/* スマホ画面用にメトリックの数字表示フォントサイズを小さく調整 */
+[data-testid="stMetricValue"] {
+    font-size: 1.5rem !important;
+    word-break: break-all;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🚕 介護タクシー 概算料金計算")
 st.caption("「距離制」と「時間制（貸切）」の料金自動比較 ＆ 渋滞考慮シミュレーター")
 
@@ -297,7 +308,6 @@ charter_total_final = charter_after_disc + common_options
 # --- STEP 6: 結果表示と比較 ---
 st.subheader("5. 見積もり比較結果")
 
-# 縦並び配置で全画面サイズに対応
 st.markdown("#### 📏 距離制運賃")
 st.metric("概算合計", f"{dist_total_normal:,} 円 〜 {dist_total_traffic:,} 円 (渋滞時)")
 if dist_total_normal <= charter_total_final:
@@ -305,7 +315,7 @@ if dist_total_normal <= charter_total_final:
 
 st.markdown("---")
 
-st.markdown("#### ⏱️ 時間制運賃")
+st.markdown("#### ⏱️ 時間制運賃 (貸切)")
 st.metric("概算合計", f"{charter_total_final:,} 円")
 if charter_total_final < dist_total_normal:
     st.success("💡 時間制がお得です")
