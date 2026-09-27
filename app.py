@@ -239,11 +239,11 @@ common_options = yoyaku_fare + care_fare + indoor_care_fare + equipment_fare + s
 geisha_fare = 850 if use_geisha else 0
 
 # --------------------------------------------------
-# 時間加算対象分数の算出（信号8機＋渋滞8割）
+# 時間加算対象分数の算出（信号遭遇率50%＋渋滞8割）
 # --------------------------------------------------
-# 1. 通常走行時の信号待ち時間（分）： 距離 × 信号機数/km × 平均秒数 / 60
+# 1. 通常走行時の信号待ち時間（分）： 距離 × 信号機数/km × 平均秒数 × 遭遇率50% / 60
 total_signals = distance_km * signals_per_km
-normal_signal_minutes = (total_signals * wait_sec_per_signal) / 60.0
+normal_signal_minutes = (total_signals * wait_sec_per_signal * 0.5) / 60.0
 
 # 2. 通常時の時間加算対象 ＝ 信号待ち時間 ＋ 乗降介助・待機時間
 normal_add_target_minutes = normal_signal_minutes + stop_minutes
@@ -305,7 +305,7 @@ if dist_total_normal <= charter_total_final:
 
 st.markdown("---")
 
-st.markdown("#### ⏱️ 時間制運賃 ")
+st.markdown("#### ⏱️ 時間制運賃")
 st.metric("概算合計", f"{charter_total_final:,} 円")
 if charter_total_final < dist_total_normal:
     st.success("💡 時間制がお得です")
