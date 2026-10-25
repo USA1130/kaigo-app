@@ -1,6 +1,7 @@
 import streamlit as st
 import math
 import urllib.parse
+from routing import RoutingError, estimate_route
 
 # --- ページ基本設定 ---
 st.set_page_config(
@@ -43,30 +44,74 @@ if origin and destination:
     st.info("👇 下のボタンを押すと別タブでGoogleマップが開き、距離と走行時間を調べられます。")
     st.link_button("🗺️ Googleマップで距離・所要時間を確認する", gmaps_url)
 
+if st.button("📍 距離と標準時間を自動取得", type="primary"):
+    try:
+        with st.spinner("住所を検索して、車のルートを取得しています…"):
+            route = estimate_route(origin, destination)
+        if route.distance_km > 200 or route.standard_minutes > 300:
+            raise RoutingError(
+                "取得値が入力欄の上限（200km・300分）を超えています。"
+                "手入力するか、アプリの上限を調整してください。"
+            )
+        st.session_state["distance_km_input"] = max(0.1, round(route.distance_km, 1))
+        st.session_state["normal_drive_minutes_input"] = route.standard_minutes
+        st.session_state["traffic_drive_minutes_input"] = max(
+            route.standard_minutes, math.ceil(route.standard_minutes * 1.5)
+        )
+        st.session_state["route_lookup_success"] = (
+            f"自動取得しました: {route.distance_km:.1f}km / 標準 {route.standard_minutes}分。"
+            "渋滞時は標準時間の1.5倍で設定しています。必要に応じて手入力で修正できます。"
+        )
+        st.session_state.pop("route_lookup_error", None)
+    except RoutingError as exc:
+        st.session_state["route_lookup_error"] = str(exc)
+        st.session_state.pop("route_lookup_success", None)
+
+if st.session_state.get("route_lookup_success"):
+    st.success(st.session_state["route_lookup_success"])
+if st.session_state.get("route_lookup_error"):
+    st.error(
+        f"{st.session_state['route_lookup_error']} 自動取得に失敗しても、"
+        "下の距離・時間欄に手入力すれば見積もりを続けられます。"
+    )
+st.caption("住所検索: OpenStreetMap Nominatim / 道路距離・標準時間: OSRM。無料公開サービスのため、"
+           "利用制限・停止・地図データの誤差があります。")
+
 st.markdown("---")
 
 # --- STEP 2: 走行距離と利用時間の入力 ---
 st.subheader("2. 距離と所要時間・待機の入力")
 
+def keep_traffic_time_valid():
+    """Keep the traffic input within its standard-time lower bound."""
+    standard = st.session_state["normal_drive_minutes_input"]
+    current_traffic = st.session_state.get("traffic_drive_minutes_input", standard)
+    st.session_state["traffic_drive_minutes_input"] = max(standard, current_traffic)
+
 col_dist, col_drive_time = st.columns(2)
 with col_dist:
+    st.session_state.setdefault("distance_km_input", 3.0)
     distance_km = st.number_input(
         "走行距離 (km)",
         min_value=0.1,
         max_value=200.0,
         value=3.0,
         step=0.1,
-        format="%.1f"
+        format="%.1f",
+        key="distance_km_input"
     )
 
 with col_drive_time:
+    st.session_state.setdefault("normal_drive_minutes_input", 10)
     normal_drive_minutes = st.number_input(
         "マップの標準走行時間 (分)",
         min_value=1,
         max_value=300,
         value=10,
         step=1,
-        help="Googleマップで表示される通常の車走行時間"
+        help="自動取得した標準時間、または手入力した通常の車走行時間",
+        key="normal_drive_minutes_input",
+        on_change=keep_traffic_time_valid
     )
 
 col_wait, col_total_charter = st.columns(2)
@@ -116,13 +161,18 @@ with col_signal_wait:
     )
 
 with col_traffic:
+    st.session_state.setdefault(
+        "traffic_drive_minutes_input",
+        math.ceil(normal_drive_minutes * 1.5),
+    )
     traffic_drive_minutes = st.number_input(
         "渋滞時の想定走行時間 (分)",
         min_value=int(normal_drive_minutes),
         max_value=600,
-        value=max(int(normal_drive_minutes * 1.5), normal_drive_minutes + 5),
+        value=math.ceil(normal_drive_minutes * 1.5),
         step=1,
-        help="渋滞が発生した場合の予測走行時間"
+        help="自動取得直後は標準時間の1.5倍です。手入力で調整できます。",
+        key="traffic_drive_minutes_input"
     )
 
 st.markdown("---")
